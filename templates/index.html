@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🔄 Веб-Конвертер</title>
+    <style>
+        body { font-family: system-ui, -apple-system, sans-serif; max-width: 500px; margin: 2rem auto; padding: 1rem; background: #f5f5f7; color: #1d1d1f; }
+        .card { background: #fff; padding: 1.5rem; border-radius: 16px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
+        h1 { text-align: center; margin: 0 0 1.5rem; font-size: 1.5rem; }
+        label { display: block; margin: 1rem 0 0.5rem; font-weight: 500; font-size: 0.95rem; }
+        input, select, button { width: 100%; padding: 14px; border-radius: 12px; border: 1px solid #d1d1d6; font-size: 16px; box-sizing: border-box; background: #fff; }
+        button { background: #007aff; color: #fff; border: none; cursor: pointer; margin-top: 1.5rem; font-weight: 600; }
+        button:disabled { background: #8e8e93; cursor: not-allowed; }
+        #progress-wrap { margin-top: 1rem; display: none; }
+        .progress-bg { background: #e5e5ea; border-radius: 10px; height: 8px; overflow: hidden; }
+        .progress-bar { height: 100%; width: 0%; background: #007aff; transition: width 0.3s ease; }
+        #progress-text { text-align: center; font-size: 0.85rem; color: #666; margin-top: 6px; }
+        #status { margin-top: 1rem; padding: 1rem; background: #f2f2f7; border-radius: 12px; text-align: center; display: none; }
+        .success { background: #e4f5e9; color: #1a7f37; }
+        .error { background: #ffeaea; color: #d32f2f; }
+        #download { display: none; margin-top: 1rem; text-align: center; }
+        #download a { display: inline-block; background: #34c759; color: #fff; padding: 14px 28px; border-radius: 12px; text-decoration: none; font-weight: 500; }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <h1>🔄 Веб-Конвертер</h1>
+        <form id="form">
+            <label>📁 Файл</label>
+            <input type="file" id="file" required>
+            <label>📦 Формат</label>
+            <select id="format"></select>
+            <label>⚙️ Качество</label>
+            <select id="quality">
+                <option value="low">Низкое</option>
+                <option value="medium" selected>Среднее</option>
+                <option value="high">Высокое</option>
+            </select>
+            <button type="submit" id="btn" disabled>⚡ Конвертировать</button>
+        </form>
+        
+        <div id="progress-wrap">
+            <div class="progress-bg"><div class="progress-bar" id="p-bar"></div></div>
+            <div id="progress-text">⏳ 0%</div>
+        </div>
+        <div id="status"></div>
+        <div id="download"><a href="#" id="dl">⬇️ Скачать результат</a></div>
+    </div>
+    <script>
+        const formats = {
+            image: [{v:'png',t:'PNG'},{v:'jpg',t:'JPEG'},{v:'webp',t:'WebP'},{v:'bmp',t:'BMP'}],
+            video: [{v:'mp4',t:'MP4'},{v:'webm',t:'WebM'},{v:'mkv',t:'MKV'},{v:'mp3',t:'MP3 (звук)'}],
+            audio: [{v:'mp3',t:'MP3'},{v:'wav',t:'WAV'},{v:'aac',t:'AAC'},{v:'flac',t:'FLAC'}],
+            doc: [{v:'txt',t:'Текст (TXT)'},{v:'docx',t:'Word (DOCX)'}],
+            default: [{v:'mp4',t:'MP4'},{v:'mp3',t:'MP3'}]
+        };
+        const fileInput = document.getElementById('file');
+        const formatSelect = document.getElementById('format');
+        const btn = document.getElementById('btn');
+        const pWrap = document.getElementById('progress-wrap');
+        const pBar = document.getElementById('p-bar');
+        const pText = document.getElementById('progress-text');
+        const st = document.getElementById('status');
+        const dl = document.getElementById('download');
+
+        function updateFormats() {
+            const f = fileInput.files[0];
+            if (!f) { btn.disabled = true; return; }
+            const ext = f.name.split('.').pop().toLowerCase();
+            let type = 'default';
+            if (['png','jpg','jpeg','webp','bmp','gif','tiff','heic','heif'].includes(ext)) type = 'image';
+            else if (['mp4','webm','mkv','avi','mov'].includes(ext)) type = 'video';
+            else if (['mp3','wav','aac','flac','ogg'].includes(ext)) type = 'audio';
+            else if (['pdf','docx'].includes(ext)) type = 'doc';
+            formatSelect.innerHTML = '';
+            formats[type].forEach(opt => {
+                const el = document.createElement('option');
+                el.value = opt.v; el.textContent = opt.t;
+                formatSelect.appendChild(el);
+            });
+            btn.disabled = false;
+        }
+        fileInput.addEventListener('change', updateFormats);
+
+        document.getElementById('form').addEventListener('submit', async e => {
+            e.preventDefault();
+            btn.disabled = true; btn.textContent = '⏳ Загрузка...';
+            st.style.display = 'none'; dl.style.display = 'none';
+            pWrap.style.display = 'block'; pBar.style.width = '0%'; pText.textContent = '⏳ Отправка...';
+
+            const fd = new FormData();
+            fd.append('file', fileInput.files[0]);
+            fd.append('format', formatSelect.value);
+            fd.append('quality', document.getElementById('quality').value);
+
+            try {
+                const res = await fetch('/upload', { method: 'POST', body: fd });
+                const data = await res.json();
+                if (data.error) throw new Error(data.error);
+
+                const poll = async () => {
+                    const r = await fetch(`/status/${data.task_id}`);
+                    const s = await r.json();
+                    
+                    if (s.progress !== undefined) {
+                        pBar.style.width = s.progress + '%';
+                        pText.textContent = `⏳ ${s.progress}%`;
+                    }
+                    
+                    if (s.status === 'done') {
+                        pWrap.style.display = 'none';
+                        st.style.display = 'block'; st.className = 'success'; st.textContent = '✅ Готово!';
+                        document.getElementById('dl').href = `/download/${data.task_id}`;
+                        dl.style.display = 'block'; btn.disabled = false; btn.textContent = '⚡ Конвертировать';
+                    } else if (s.status.startsWith('error') || s.status === 'timeout') {
+                        pWrap.style.display = 'none';
+                        st.style.display = 'block'; st.className = 'error'; st.textContent = '❌ ' + s.status;
+                        btn.disabled = false; btn.textContent = '⚡ Конвертировать';
+                    } else {
+                        st.style.display = 'block'; st.textContent = s.status === 'queued' ? '⏳ В очереди...' : '🔄 Конвертация...';
+                        setTimeout(poll, 1000);
+                    }
+                };
+                setTimeout(poll, 1000);
+            } catch (err) {
+                pWrap.style.display = 'none';
+                st.style.display = 'block'; st.className = 'error'; st.textContent = '❌ ' + err.message;
+                btn.disabled = false; btn.textContent = '⚡ Конвертировать';
+            }
+        });
+    </script>
+</body>
+</html>
